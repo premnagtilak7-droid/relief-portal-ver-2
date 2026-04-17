@@ -139,7 +139,7 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
 
       await submitSOS(sosData);
 
-      // --- AUTO CALL & MESSAGE LOGIC ---
+      // --- AUTO CALL & MESSAGE LOGIC (Twilio) ---
       const recipientNumber = nearbyVolunteers.length > 0 
         ? nearbyVolunteers[0].phoneNumber 
         : (HELPLINE_MAPPING[analysis?.targetStation || 'fallback'] || '112');
@@ -147,31 +147,37 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
       const emoji = analysis?.primaryNeed === 'Medical' ? '🚑' : analysis?.primaryNeed === 'Fire' ? '🚒' : '🚨';
       const smsBody = `${emoji} EMERGENCY SOS!\nNeed: ${sosData.emergencyType}\nPos: ${sosData.location}\nDetails: ${sosData.description}`;
 
-      // Open SMS app first (optional, might be blocked by dialer)
-      // We'll show a toast with a button for SMS and auto-trigger the call
-      
-      toast.success(`SOS BROADCASTED!`, {
-        description: `Connecting you to ${analysis?.targetStation || 'Emergency Services'}...`,
-        duration: 10000,
-      });
-
-      // Automated call
-      setTimeout(() => {
-        window.open(`tel:${recipientNumber}`);
-      }, 1000);
-
-      // Attempt to prepare SMS (browsers might block double triggers, so we provide a clear UI link too)
-      const smsUrl = `sms:${recipientNumber}${window.navigator.userAgent.includes('iPhone') ? '&' : '?'}body=${encodeURIComponent(smsBody)}`;
-      
-      // We use a small delay for the SMS if the call didn't take over the window
-      setTimeout(() => {
-        toast.info("Sending SMS alert...", {
-          action: {
-            label: "Send Now",
-            onClick: () => window.open(smsUrl)
+      toast.promise(
+        fetch('/api/emergency/sos-broadcast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipientNumber,
+            message: smsBody,
+            type: sosData.emergencyType
+          })
+        }).then(async (res) => {
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Twilio server error');
           }
-        });
-      }, 3000);
+          return res.json();
+        }),
+        {
+          loading: 'Initializing automated rescue call...',
+          success: (data) => {
+            return `Rescue call & SMS initiated! (SID: ${data.callSid.slice(-4)})`;
+          },
+          error: (err) => {
+            console.warn('Twilio failed, falling back to manual dial:', err);
+            // Fallback to client-side trigger
+            setTimeout(() => {
+              window.open(`tel:${recipientNumber}`);
+            }, 500);
+            return 'Twilio call failed. Opening phone dialer instead...';
+          }
+        }
+      );
 
       onClose();
     } catch (error: any) {

@@ -56,6 +56,7 @@
     "tailwind-merge": "*",
     "tsx": "^4.21.0",
     "tw-animate-css": "^1.3.8",
+    "twilio": "^5.13.1",
     "vaul": "^1.1.2"
   },
   "devDependencies": {
