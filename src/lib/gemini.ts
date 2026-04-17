@@ -114,6 +114,14 @@ export interface VisionAnalysis {
   falseAlarmReason?: string;
 }
 
+export interface VerificationAnalysis {
+  isValidDocument: boolean;
+  documentType: string;
+  extractedName?: string;
+  verificationNotes: string;
+  confidenceScore: number; // 0-100
+}
+
 /**
  * Analyze a disaster photo using Gemini 3 Flash
  * @param imageUrl - The Firebase Storage URL of the uploaded image
@@ -218,6 +226,72 @@ Severity Guidelines (for REAL disasters only):
       description: "Unable to analyze photo automatically",
       urgentDetails: "Manual assessment required",
       isFalseAlarm: false,
+    };
+  }
+}
+
+/**
+ * Analyze an identity document for volunteer verification
+ */
+export async function analyzeIdentityDocument(base64Data: string): Promise<VerificationAnalysis> {
+  if (!process.env.GEMINI_API_KEY) {
+    return {
+      isValidDocument: false,
+      documentType: "Unknown",
+      verificationNotes: "AI verification unavailable",
+      confidenceScore: 0
+    };
+  }
+
+  try {
+    const prompt = `You are an identity verification AI. Analyze this document uploaded by a potential disaster relief volunteer.
+    
+    Tasks:
+    1. Determine if this is a valid identity document (ID card, Passport, Driver's License, or specialized Certification).
+    2. Extract the full name if visible.
+    3. Provide a brief verification note.
+    4. Guard against: random photos, non-ID documents, blurry/unreadable images.
+    
+    Respond ONLY with a valid JSON object:
+    {
+      "isValidDocument": boolean,
+      "documentType": "Passport" | "ID Card" | "License" | "Certification" | "Invalid",
+      "extractedName": "Name as shown",
+      "verificationNotes": "Brief reasoning",
+      "confidenceScore": 0-100
+    }`;
+
+    const result = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: base64Data,
+          }
+        }
+      ],
+      config: {
+        temperature: 0, // High precision
+      }
+    });
+
+    const responseText = result.text;
+    const jsonMatch = responseText?.match(/\{[\s\S]*\}/);
+    
+    if (!jsonMatch) {
+      throw new Error("Invalid AI response");
+    }
+
+    return JSON.parse(jsonMatch[0]) as VerificationAnalysis;
+  } catch (error) {
+    console.error("Identity verification error:", error);
+    return {
+      isValidDocument: false,
+      documentType: "Error",
+      verificationNotes: "Analysis failed. Please ensure the photo is clear.",
+      confidenceScore: 0
     };
   }
 }

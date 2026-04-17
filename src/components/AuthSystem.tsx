@@ -6,11 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ThemeToggle } from './ThemeToggle';
-import { UserCheck, Shield, Users, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { UserCheck, Shield, Users, Eye, EyeOff, AlertTriangle, Upload, CheckCircle2, XCircle, Info } from 'lucide-react';
 import { roleDescriptions } from './constants/uiConstants';
 import { registerUser, loginUser, signInWithGoogle, resetPassword } from '@/lib/users';
 import { submitEmergencySOS } from '@/lib/alerts';
 import { getCurrentLocation } from '@/lib/geolocation';
+import { analyzeIdentityDocument, VerificationAnalysis } from '@/lib/gemini';
 import { toast } from 'sonner';
 
 export type UserRole = 'admin' | 'volunteer' | 'victim';
@@ -50,6 +51,42 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
   const [signUpPassword, setSignUpPassword] = useState('');
   const [signUpConfirmPassword, setSignUpConfirmPassword] = useState('');
   const [signUpRole, setSignUpRole] = useState<UserRole>('victim');
+  const [volunteerDocBase64, setVolunteerDocBase64] = useState<string | null>(null);
+  const [isAnalyzingDoc, setIsAnalyzingDoc] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<VerificationAnalysis | null>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size too large. Max 5MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      const cleanBase64 = base64.split(',')[1];
+      setVolunteerDocBase64(cleanBase64);
+      
+      setIsAnalyzingDoc(true);
+      try {
+        const result = await analyzeIdentityDocument(cleanBase64);
+        setVerificationResult(result);
+        if (result.isValidDocument) {
+          toast.success(`ID Document detected: ${result.documentType}`);
+        } else {
+          toast.error(`Invalid document: ${result.verificationNotes}`);
+        }
+      } catch (error) {
+        toast.error('Failed to analyze document.');
+      } finally {
+        setIsAnalyzingDoc(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,6 +169,16 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
       return;
     }
     
+    if (signUpRole === 'volunteer' && !volunteerDocBase64) {
+      toast.error('Volunteers must upload an identity document for verification');
+      return;
+    }
+
+    if (signUpRole === 'volunteer' && verificationResult && !verificationResult.isValidDocument) {
+      toast.error('The uploaded document was not recognized as a valid identity document. Please try a clearer photo.');
+      return;
+    }
+    
     setIsLoading(true);
     
     try {
@@ -139,7 +186,12 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
         signUpEmail,
         signUpPassword,
         signUpName,
-        signUpRole
+        signUpRole,
+        signUpRole === 'volunteer' ? {
+          notes: verificationResult?.verificationNotes,
+          score: verificationResult?.confidenceScore,
+          status: verificationResult?.isValidDocument ? 'verified' : 'pending' // Auto-verify if confident
+        } : undefined
       );
       
       const user: User = {
@@ -414,6 +466,98 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {signUpRole === 'volunteer' && (
+                  <div className="space-y-4 p-4 bg-muted/30 rounded-xl border border-border/50">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-semibold flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-blue-600" />
+                        Identity Verification
+                      </Label>
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-widest bg-muted px-2 py-0.5 rounded">
+                        Required for Volunteers
+                      </div>
+                    </div>
+                    
+                    <p className="text-xs text-muted-foreground">
+                      Upload a photo of your Government ID or Professional Certification (e.g., First Aid, Nurse, Firefighter).
+                    </p>
+
+                    <div className="relative group">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        className="hidden"
+                        id="doc-upload"
+                        disabled={isAnalyzingDoc}
+                      />
+                      <label
+                        htmlFor="doc-upload"
+                        className={`flex flex-col items-center justify-center w-full min-h-[120px] border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${
+                          volunteerDocBase64 
+                            ? 'border-green-500/50 bg-green-50/10 dark:bg-green-950/10' 
+                            : 'border-muted-foreground/20 hover:border-blue-500/50 hover:bg-blue-50/5 dark:hover:bg-blue-950/5'
+                        } ${isAnalyzingDoc ? 'opacity-50 cursor-wait' : ''}`}
+                      >
+                        {isAnalyzingDoc ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="h-6 w-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs font-medium">Analyzing ID with AI...</span>
+                          </div>
+                        ) : volunteerDocBase64 ? (
+                          <div className="flex flex-col items-center gap-2 p-4 text-center">
+                            {verificationResult?.isValidDocument ? (
+                              <CheckCircle2 className="h-8 w-8 text-green-500" />
+                            ) : (
+                              <XCircle className="h-8 w-8 text-destructive" />
+                            )}
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold">
+                                {verificationResult?.isValidDocument 
+                                  ? `Verified ${verificationResult.documentType}` 
+                                  : 'Verification Failed'}
+                              </p>
+                              <p className="text-[10px] opacity-70">
+                                {verificationResult?.verificationNotes}
+                              </p>
+                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="mt-2 text-xs"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                document.getElementById('doc-upload')?.click();
+                              }}
+                            >
+                              Change File
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="h-10 w-10 bg-muted rounded-full flex items-center justify-center group-hover:bg-blue-100 dark:group-hover:bg-blue-900/50 transition-colors">
+                              <Upload className="h-5 w-5 text-muted-foreground group-hover:text-blue-600" />
+                            </div>
+                            <span className="text-xs font-medium text-muted-foreground underline decoration-dotted underline-offset-4">
+                              Click to upload document
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/60">
+                              Max size 5MB (JPG, PNG)
+                            </span>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+
+                    {verificationResult?.isValidDocument && verificationResult.extractedName && (
+                      <div className="flex items-center gap-2 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 p-2 rounded-lg border border-green-200 dark:border-green-800/50">
+                        <CheckCircle2 className="h-3 w-3" />
+                        <span>Name matched: {verificationResult.extractedName}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg border border-blue-200/50 dark:border-blue-800/50">
                   <div className="flex items-start gap-2">

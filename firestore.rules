@@ -17,6 +17,10 @@ service cloud.firestore {
     //   - latitude: number (optional)
     //   - longitude: number (optional)
     //   - availableForRescue: bool (optional)
+    //   - verificationStatus: string (optional) - ['pending', 'verified', 'rejected', 'none']
+    //   - verificationDocURL: string (optional)
+    //   - verificationNotes: string (optional)
+    //   - idConfidenceScore: number (optional)
     //   - createdAt: timestamp (required)
     //
     // Collection: alerts
@@ -67,7 +71,11 @@ service cloud.firestore {
              data.email is string && isValidEmail(data.email) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.role in ['admin', 'volunteer', 'victim'] &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             (!('verificationStatus' in data) || data.verificationStatus in ['pending', 'verified', 'rejected', 'none']) &&
+             (!('verificationDocURL' in data) || data.verificationDocURL is string) &&
+             (!('verificationNotes' in data) || data.verificationNotes is string) &&
+             (!('idConfidenceScore' in data) || data.idConfidenceScore is number);
     }
 
     function isValidSOS(data) {

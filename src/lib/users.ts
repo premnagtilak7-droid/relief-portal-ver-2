@@ -32,6 +32,10 @@ export interface UserDocument {
   longitude?: number;
   availableForRescue?: boolean;
   lastLocationUpdate?: ReturnType<typeof serverTimestamp>;
+  verificationStatus?: 'pending' | 'verified' | 'rejected' | 'none';
+  verificationDocURL?: string;
+  verificationNotes?: string;
+  idConfidenceScore?: number;
   createdAt: ReturnType<typeof serverTimestamp>;
 }
 
@@ -42,7 +46,13 @@ export async function registerUser(
   email: string,
   password: string,
   name: string,
-  role: UserRole
+  role: UserRole,
+  verificationData?: {
+    docURL?: string;
+    notes?: string;
+    score?: number;
+    status?: 'pending' | 'verified' | 'rejected';
+  }
 ): Promise<UserDocument> {
   try {
     // Create Firebase Auth user
@@ -59,6 +69,10 @@ export async function registerUser(
       email,
       name,
       role,
+      verificationStatus: verificationData?.status || (role === 'volunteer' ? 'pending' : 'none'),
+      verificationDocURL: verificationData?.docURL,
+      verificationNotes: verificationData?.notes,
+      idConfidenceScore: verificationData?.score,
       createdAt: serverTimestamp(),
     };
 

@@ -14,6 +14,10 @@
         "latitude": { "type": "number" },
         "longitude": { "type": "number" },
         "availableForRescue": { "type": "boolean" },
+        "verificationStatus": { "type": "string", "enum": ["pending", "verified", "rejected", "none"] },
+        "verificationDocURL": { "type": "string" },
+        "verificationNotes": { "type": "string" },
+        "idConfidenceScore": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "name", "role", "createdAt"]
