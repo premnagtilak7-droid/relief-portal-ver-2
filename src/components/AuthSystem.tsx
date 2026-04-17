@@ -13,6 +13,7 @@ import { submitEmergencySOS } from '@/lib/alerts';
 import { getCurrentLocation } from '@/lib/geolocation';
 import { analyzeIdentityDocument, VerificationAnalysis } from '@/lib/gemini';
 import { toast } from 'sonner';
+import { EmergencySOSForm } from './EmergencySOSForm';
 
 export type UserRole = 'admin' | 'volunteer' | 'victim';
 
@@ -44,6 +45,7 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
   // Sign In Form State
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
+  const [showSOSForm, setShowSOSForm] = useState(false);
   
   // Sign Up Form State
   const [signUpName, setSignUpName] = useState('');
@@ -280,6 +282,14 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
       setIsSOSLoading(false);
     }
   };
+
+  if (showSOSForm) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-red-100/30 flex items-center justify-center p-4">
+        <EmergencySOSForm onClose={() => setShowSOSForm(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-100/40 dark:from-slate-900 dark:via-slate-800/50 dark:to-slate-700/30 flex items-center justify-center p-4 relative">
@@ -664,15 +674,14 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
             <Button
               type="button"
               variant="destructive"
-              className="w-full py-6 text-lg font-bold uppercase tracking-wider animate-pulse shadow-lg"
-              onClick={handleQuickSOS}
-              disabled={isSOSLoading}
+              className="w-full py-6 text-lg font-bold border-2 border-red-500/20 hover:border-red-500 bg-red-600/10 hover:bg-red-600 text-red-600 hover:text-white uppercase tracking-wider transition-all duration-300 shadow-md"
+              onClick={() => setShowSOSForm(true)}
             >
               <AlertTriangle className="mr-2 h-6 w-6" />
-              {isSOSLoading ? 'Sending SOS...' : 'Emergency SOS'}
+              Full Emergency SOS
             </Button>
             <p className="text-[10px] text-center mt-2 text-destructive font-medium uppercase italic">
-              Click only for real emergencies. Notifies all nearby rescuers.
+              Access localized help, photo analysis, and rescue dispatch.
             </p>
           </div>
         </CardContent>

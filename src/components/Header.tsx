@@ -28,6 +28,7 @@ interface HeaderProps {
   onLogout: () => void;
   activeView: string;
   setActiveView: (view: string) => void;
+  onSOS: () => void;
 }
 
 const roleIcons = {
@@ -37,7 +38,7 @@ const roleIcons = {
   victim: UserCheck,
 };
 
-export function Header({ user, onLogout, activeView, setActiveView }: HeaderProps) {
+export function Header({ user, onLogout, activeView, setActiveView, onSOS }: HeaderProps) {
   const Icon = roleIcons[user.role];
   const navigation = navigationItems[user.role];
 
@@ -68,6 +69,15 @@ export function Header({ user, onLogout, activeView, setActiveView }: HeaderProp
         </div>
 
         <div className="flex items-center space-x-3">
+          <Button 
+            variant="destructive" 
+            size="sm" 
+            onClick={onSOS}
+            className="hidden sm:flex animate-pulse hover:animate-none font-bold shadow-lg shadow-red-200 dark:shadow-none"
+          >
+            🆘 SOS
+          </Button>
+
           <ThemeToggle />
           
           <Button variant="ghost" size="sm" className="relative transition-all duration-200 hover:scale-105">
