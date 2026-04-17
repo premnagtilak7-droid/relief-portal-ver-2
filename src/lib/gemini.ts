@@ -3,9 +3,23 @@ import { db } from "./firebase";
 import { GoogleGenAI } from "@google/genai";
 
 // Initialize Gemini on the client
-// The platform injects GEMINI_API_KEY into the process.env context
+// Handle process.env safely for browser environments
+const getApiKey = () => {
+  try {
+    // Try process.env (Node/some polyfills)
+    if (typeof process !== 'undefined' && process.env && process.env.GEMINI_API_KEY) {
+      return process.env.GEMINI_API_KEY;
+    }
+  } catch (e) {
+    // Ignore error
+  }
+  
+  // Fallback to Vite's import.meta.env
+  return import.meta.env.VITE_GEMINI_API_KEY || "";
+};
+
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || (import.meta as any).env.VITE_GEMINI_API_KEY || ""
+  apiKey: getApiKey()
 });
 
 const DEFAULT_MODEL = "gemini-3-flash-preview";
