@@ -6,9 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ThemeToggle } from './ThemeToggle';
-import { UserCheck, Shield, Users, Eye, EyeOff } from 'lucide-react';
+import { UserCheck, Shield, Users, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { roleDescriptions } from './constants/uiConstants';
 import { registerUser, loginUser, signInWithGoogle, resetPassword } from '@/lib/users';
+import { submitEmergencySOS } from '@/lib/alerts';
+import { getCurrentLocation } from '@/lib/geolocation';
 import { toast } from 'sonner';
 
 export type UserRole = 'admin' | 'volunteer' | 'victim';
@@ -36,6 +38,7 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
+  const [isSOSLoading, setIsSOSLoading] = useState(false);
   
   // Sign In Form State
   const [signInEmail, setSignInEmail] = useState('');
@@ -153,6 +156,28 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
       toast.error(errorMessage);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleQuickSOS = async () => {
+    setIsSOSLoading(true);
+    try {
+      const location = await getCurrentLocation();
+      await submitEmergencySOS(
+        'anonymous',
+        'Guest User (SOS)',
+        location.latitude,
+        location.longitude
+      );
+      toast.success('EMERGENCY SOS SENT! Rescuers have been notified of your location.', {
+        duration: 10000,
+        className: 'bg-red-600 text-white',
+      });
+    } catch (error) {
+      console.error('SOS Error:', error);
+      toast.error('Failed to send SOS. Please check your location permissions.');
+    } finally {
+      setIsSOSLoading(false);
     }
   };
 
@@ -440,6 +465,22 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
                 'Sign in with your registered email and password.' :
                 'Register to join the disaster relief network.'
               }
+            </p>
+          </div>
+
+          <div className="mt-6">
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-full py-6 text-lg font-bold uppercase tracking-wider animate-pulse shadow-lg"
+              onClick={handleQuickSOS}
+              disabled={isSOSLoading}
+            >
+              <AlertTriangle className="mr-2 h-6 w-6" />
+              {isSOSLoading ? 'Sending SOS...' : 'Emergency SOS'}
+            </Button>
+            <p className="text-[10px] text-center mt-2 text-destructive font-medium uppercase italic">
+              Click only for real emergencies. Notifies all nearby rescuers.
             </p>
           </div>
         </CardContent>
