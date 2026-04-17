@@ -20,9 +20,6 @@ function figmaAssetResolver() {
     const env = loadEnv(mode, process.cwd(), '');
     return {
       plugins: [react(), tailwindcss(), figmaAssetResolver()],
-      define: {
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      },
       resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

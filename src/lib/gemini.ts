@@ -1,10 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
-
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY || "" 
-});
 
 export interface TriageResult {
   category: "Medical" | "Food" | "Water" | "Shelter" | "Rescue" | "Other";
@@ -12,66 +7,41 @@ export interface TriageResult {
   reasoning?: string;
 }
 
+export interface VisionAnalysis {
+  severity: number; // 1-10
+  primaryNeed: "Medical" | "Rescue" | "Food" | "Shelter" | "Water" | "Other";
+  description: string;
+  urgentDetails?: string;
+  isFalseAlarm: boolean;
+  falseAlarmReason?: string;
+}
+
+export interface VerificationAnalysis {
+  isValidDocument: boolean;
+  documentType: string;
+  extractedName?: string;
+  verificationNotes: string;
+  confidenceScore: number; // 0-100
+}
+
 /**
- * Triage an alert using Gemini 3 Flash
- * Analyzes the victim's message and returns category and priority
+ * Triage an alert using backend Gemini proxy
  */
 export async function triageAlert(
   emergencyType: string,
   description: string
 ): Promise<TriageResult> {
   try {
-    const prompt = `You are a disaster relief triage AI. Analyze the following emergency request and categorize it.
-
-Emergency Type: ${emergencyType}
-Description: ${description}
-
-Respond ONLY with a valid JSON object in this exact format (no markdown, no explanation):
-{
-  "category": "Medical" | "Food" | "Water" | "Shelter" | "Rescue" | "Other",
-  "priority": 1-5 (1 = most urgent, 5 = least urgent),
-  "reasoning": "brief explanation"
-}
-
-Priority Guidelines:
-- 1: Life-threatening, immediate danger (severe injuries, trapped, drowning)
-- 2: Urgent medical needs, vulnerable populations (elderly, children, disabled)
-- 3: Basic needs critically low (no water for 24h+, no food for 48h+)
-- 4: Important but stable (shelter damage, low supplies)
-- 5: Non-urgent assistance (information requests, minor needs)`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
+    const response = await fetch("/api/gemini/triage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emergencyType, description }),
     });
 
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("Empty response from AI");
-    }
-    
-    // Parse JSON from response
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("Invalid response format from Gemini");
-    }
-
-    const triageData = JSON.parse(jsonMatch[0]) as TriageResult;
-    
-    // Validate the response
-    const validCategories = ["Medical", "Food", "Water", "Shelter", "Rescue", "Other"];
-    if (!validCategories.includes(triageData.category)) {
-      triageData.category = "Other";
-    }
-    
-    if (triageData.priority < 1 || triageData.priority > 5) {
-      triageData.priority = 3;
-    }
-
-    return triageData;
+    if (!response.ok) throw new Error("Triage request failed");
+    return await response.json();
   } catch (error) {
-    console.error("Gemini triage error:", error);
-    // Return default triage if AI fails
+    console.error("Client Triage Error:", error);
     return {
       category: "Other",
       priority: 3,
@@ -97,7 +67,6 @@ export async function triageAndUpdateAlert(
       triageCategory: triageResult.category,
       triagePriority: triageResult.priority,
     });
-    console.log("ALERT TRIAGED SUCCESSFULLY");
   } catch (error) {
     console.error("Failed to update alert with triage:", error);
   }
@@ -105,126 +74,29 @@ export async function triageAndUpdateAlert(
   return triageResult;
 }
 
-export interface VisionAnalysis {
-  severity: number; // 1-10
-  primaryNeed: "Medical" | "Rescue" | "Food" | "Shelter" | "Water" | "Other";
-  description: string;
-  urgentDetails?: string;
-  isFalseAlarm: boolean;
-  falseAlarmReason?: string;
-}
-
-export interface VerificationAnalysis {
-  isValidDocument: boolean;
-  documentType: string;
-  extractedName?: string;
-  verificationNotes: string;
-  confidenceScore: number; // 0-100
-}
-
 /**
- * Analyze a disaster photo using Gemini 3 Flash
- * @param imageUrl - The Firebase Storage URL of the uploaded image
+ * Analyze a disaster photo using backend Gemini proxy
  */
 export async function analyzeDisasterPhoto(imageUrl: string): Promise<VisionAnalysis> {
-  // Check if API key exists
-  if (!process.env.GEMINI_API_KEY) {
-    console.warn("GEMINI_API_KEY not set - skipping AI analysis");
-    return {
-      severity: 5,
-      primaryNeed: "Other",
-      description: "AI analysis unavailable - API key not configured",
-      urgentDetails: "Manual assessment required",
-      isFalseAlarm: false,
-    };
-  }
-
   try {
-    // Fetch the image as base64
-    const response = await fetch(imageUrl);
-    const blob = await response.blob();
-    const base64 = await new Promise<string>((resolve) => {
+    const fetchResponse = await fetch(imageUrl);
+    const blob = await fetchResponse.blob();
+    const base64Data = await new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => {
         const result = reader.result as string;
-        resolve(result.split(',')[1]); // Remove data:image/...;base64, prefix
+        resolve(result.split(',')[1]);
       };
       reader.readAsDataURL(blob);
     });
 
-    const prompt = `You are a disaster relief AI analyst. FIRST determine if this is a REAL disaster photo or a FALSE ALARM.
-
-FALSE ALARM examples: restaurant menus, food photos, random screenshots, memes, selfies, irrelevant images.
-REAL DISASTER examples: floods, fires, collapsed buildings, injured people, damage, emergencies.
-
-Respond ONLY with a valid JSON object in this exact format (no markdown, no explanation):
-{
-  "isFalseAlarm": true/false,
-  "falseAlarmReason": "Explain why this is NOT a disaster (only if isFalseAlarm is true)",
-  "severity": 0-10 (0 = false alarm, 10 = most severe),
-  "primaryNeed": "Medical" | "Rescue" | "Food" | "Shelter" | "Water" | "Other",
-  "description": "Brief description of what you see (max 100 words)",
-  "urgentDetails": "Any critical details rescuers should know (or 'N/A - False Alarm')"
-}
-
-If isFalseAlarm is true, set severity to 0.
-
-Severity Guidelines (for REAL disasters only):
-- 9-10: Life-threatening (collapsed structures, fire, flood, trapped people)
-- 7-8: Severe damage (major structural damage, injured visible)
-- 5-6: Moderate damage (partial damage, supplies needed)
-- 3-4: Minor damage (cosmetic damage, basic assistance)
-- 1-2: Minimal (precautionary assessment)
-- 0: FALSE ALARM - Not a disaster image`;
-
-    const result = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [
-        { text: prompt },
-        { 
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: base64,
-          }
-        }
-      ]
-    });
-
-    const responseText = result.text;
-    if (!responseText) {
-      throw new Error("Empty response from AI");
-    }
-
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("Invalid response format from Gemini Vision");
-    }
-
-    const analysis = JSON.parse(jsonMatch[0]) as VisionAnalysis;
-    
-    // Validate
-    if (analysis.severity < 0 || analysis.severity > 10) {
-      analysis.severity = 5;
-    }
-    
-    // If false alarm, ensure severity is 0
-    if (analysis.isFalseAlarm) {
-      analysis.severity = 0;
-    }
-    
-    const validNeeds = ["Medical", "Rescue", "Food", "Shelter", "Water", "Other"];
-    if (!validNeeds.includes(analysis.primaryNeed)) {
-      analysis.primaryNeed = "Other";
-    }
-
-    return analysis;
+    return await analyzeBase64Photo(base64Data);
   } catch (error) {
-    console.error("Gemini Vision analysis error:", error);
+    console.error("Client Analyze Photo Error:", error);
     return {
       severity: 5,
       primaryNeed: "Other",
       description: "Unable to analyze photo automatically",
-      urgentDetails: "Manual assessment required",
       isFalseAlarm: false,
     };
   }
@@ -234,59 +106,17 @@ Severity Guidelines (for REAL disasters only):
  * Analyze an identity document for volunteer verification
  */
 export async function analyzeIdentityDocument(base64Data: string): Promise<VerificationAnalysis> {
-  if (!process.env.GEMINI_API_KEY) {
-    return {
-      isValidDocument: false,
-      documentType: "Unknown",
-      verificationNotes: "AI verification unavailable",
-      confidenceScore: 0
-    };
-  }
-
   try {
-    const prompt = `You are an identity verification AI. Analyze this document uploaded by a potential disaster relief volunteer.
-    
-    Tasks:
-    1. Determine if this is a valid identity document (ID card, Passport, Driver's License, or specialized Certification).
-    2. Extract the full name if visible.
-    3. Provide a brief verification note.
-    4. Guard against: random photos, non-ID documents, blurry/unreadable images.
-    
-    Respond ONLY with a valid JSON object:
-    {
-      "isValidDocument": boolean,
-      "documentType": "Passport" | "ID Card" | "License" | "Certification" | "Invalid",
-      "extractedName": "Name as shown",
-      "verificationNotes": "Brief reasoning",
-      "confidenceScore": 0-100
-    }`;
-
-    const result = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: base64Data,
-          }
-        }
-      ],
-      config: {
-        temperature: 0, // High precision
-      }
+    const response = await fetch("/api/gemini/analyze-id", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base64Data }),
     });
 
-    const responseText = result.text;
-    const jsonMatch = responseText?.match(/\{[\s\S]*\}/);
-    
-    if (!jsonMatch) {
-      throw new Error("Invalid AI response");
-    }
-
-    return JSON.parse(jsonMatch[0]) as VerificationAnalysis;
+    if (!response.ok) throw new Error("ID verification request failed");
+    return await response.json();
   } catch (error) {
-    console.error("Identity verification error:", error);
+    console.error("Client ID verification error:", error);
     return {
       isValidDocument: false,
       documentType: "Error",
@@ -297,59 +127,20 @@ export async function analyzeIdentityDocument(base64Data: string): Promise<Verif
 }
 
 /**
- * Analyze a base64 image directly (for instant client-side analysis)
- * This is faster than waiting for Firebase upload
+ * Analyze a base64 image directly
  */
 export async function analyzeBase64Photo(base64Data: string): Promise<VisionAnalysis> {
-  // Check if API key exists
-  if (!process.env.GEMINI_API_KEY) {
-    console.warn("GEMINI_API_KEY not set - skipping AI analysis");
-    return {
-      severity: 5,
-      primaryNeed: "Other",
-      description: "AI analysis unavailable - API key not configured",
-      isFalseAlarm: false,
-    };
-  }
-
   try {
-    // Optimized short prompt for speed
-    const prompt = `Quickly categorize this image. Reply ONLY with JSON:
-{"isFalseAlarm":bool,"category":"Flood|Fire|Medical|Collapse|Irrelevant","severity":0-10,"description":"max 20 words"}
-
-Rules:
-- Food photos, menus, selfies = Irrelevant, severity 0, isFalseAlarm true
-- Real disasters = appropriate category, severity 1-10 based on urgency`;
-
-    const result = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: base64Data,
-          }
-        }
-      ],
-      config: {
-        temperature: 0.1,
-      }
+    const response = await fetch("/api/gemini/analyze-photo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base64Data }),
     });
 
-    const responseText = result.text;
-    if (!responseText) {
-      throw new Error("Empty response from AI");
-    }
+    if (!response.ok) throw new Error("Photo analysis request failed");
+    const parsed = await response.json();
 
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("Invalid response format from Gemini Vision");
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    
-    // Map category to primaryNeed
+    // Map category to primaryNeed (matching server-side logic if needed, but here we assume server returns mapped values or we map them)
     const categoryToNeed: Record<string, string> = {
       'Flood': 'Rescue',
       'Fire': 'Rescue', 
@@ -358,17 +149,15 @@ Rules:
       'Irrelevant': 'Other'
     };
     
-    const analysis: VisionAnalysis = {
+    return {
       isFalseAlarm: parsed.isFalseAlarm || parsed.category === 'Irrelevant',
       falseAlarmReason: parsed.isFalseAlarm ? parsed.description : undefined,
       severity: parsed.isFalseAlarm ? 0 : (parsed.severity || 5),
       primaryNeed: (categoryToNeed[parsed.category] || 'Other') as VisionAnalysis['primaryNeed'],
       description: parsed.description || 'Analysis complete',
     };
-    
-    return analysis;
   } catch (error) {
-    console.error("Gemini base64 analysis error:", error);
+    console.error("Client Base64 analysis error:", error);
     return {
       severity: 5,
       primaryNeed: "Other",
@@ -394,11 +183,9 @@ export async function analyzeAndUpdateAlert(
       aiSeverity: analysis.severity,
       aiPrimaryNeed: analysis.primaryNeed,
     });
-    console.log("PHOTO ANALYZED SUCCESSFULLY");
   } catch (error) {
     console.error("Failed to update alert with vision analysis:", error);
   }
   
   return analysis;
 }
-
