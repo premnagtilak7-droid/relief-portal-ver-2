@@ -147,37 +147,50 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
       const emoji = analysis?.primaryNeed === 'Medical' ? '🚑' : analysis?.primaryNeed === 'Fire' ? '🚒' : '🚨';
       const smsBody = `${emoji} EMERGENCY SOS!\nNeed: ${sosData.emergencyType}\nPos: ${sosData.location}\nDetails: ${sosData.description}`;
 
-      toast.promise(
-        fetch('/api/emergency/sos-broadcast', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            recipientNumber,
-            message: smsBody,
-            type: sosData.emergencyType
-          })
-        }).then(async (res) => {
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Twilio server error');
+      // Twilio cannot call/text short codes (e.g., 100, 101, 112). 
+      // We detect these and bypass the server API.
+      const isShortCode = recipientNumber.replace(/\D/g, '').length < 7;
+
+      if (isShortCode) {
+        toast.success(`SOS BROADCASTED!`, {
+          description: `Directly connecting you to ${analysis?.targetStation || 'Emergency Services'}...`,
+        });
+        setTimeout(() => {
+          window.open(`tel:${recipientNumber}`);
+        }, 1000);
+      } else {
+        toast.promise(
+          fetch('/api/emergency/sos-broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipientNumber,
+              message: smsBody,
+              type: sosData.emergencyType
+            })
+          }).then(async (res) => {
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Twilio server error');
+            }
+            return res.json();
+          }),
+          {
+            loading: 'Initializing automated rescue call...',
+            success: (data) => {
+              return `Rescue call & SMS initiated! (SID: ${data.callSid.slice(-4)})`;
+            },
+            error: (err) => {
+              console.warn('Twilio failed, falling back to manual dial:', err);
+              // Fallback to client-side trigger
+              setTimeout(() => {
+                window.open(`tel:${recipientNumber}`);
+              }, 500);
+              return 'Twilio call failed. Opening phone dialer instead...';
+            }
           }
-          return res.json();
-        }),
-        {
-          loading: 'Initializing automated rescue call...',
-          success: (data) => {
-            return `Rescue call & SMS initiated! (SID: ${data.callSid.slice(-4)})`;
-          },
-          error: (err) => {
-            console.warn('Twilio failed, falling back to manual dial:', err);
-            // Fallback to client-side trigger
-            setTimeout(() => {
-              window.open(`tel:${recipientNumber}`);
-            }, 500);
-            return 'Twilio call failed. Opening phone dialer instead...';
-          }
-        }
-      );
+        );
+      }
 
       onClose();
     } catch (error: any) {
