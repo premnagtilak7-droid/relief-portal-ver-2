@@ -22,8 +22,8 @@ export interface VisionAnalysis {
   description: string;
   urgentDetails?: string;
   isFalseAlarm: boolean;
-  falseAlarmReason?: string;
-  targetStation?: string;
+  falseAlarmReason?: string | null;
+  targetStation?: string | null;
 }
 
 export interface VerificationAnalysis {
@@ -219,7 +219,7 @@ Reply with JSON only.`;
     
     return {
       isFalseAlarm: parsed.isFalseAlarm || parsed.category === 'Irrelevant',
-      falseAlarmReason: parsed.isFalseAlarm ? parsed.description : undefined,
+      falseAlarmReason: parsed.isFalseAlarm ? parsed.description : null,
       severity: parsed.isFalseAlarm ? 0 : (parsed.severity || 5),
       primaryNeed: (categoryToNeed[parsed.category] || 'Other') as VisionAnalysis['primaryNeed'],
       description: parsed.description || 'Analysis complete',
@@ -232,6 +232,8 @@ Reply with JSON only.`;
       primaryNeed: "Other",
       description: "Unable to analyze photo at this time",
       isFalseAlarm: false,
+      falseAlarmReason: null,
+      targetStation: "Relief Hub"
     };
   }
 }
@@ -260,6 +262,8 @@ export async function analyzeDisasterPhoto(imageUrl: string): Promise<VisionAnal
       primaryNeed: "Other",
       description: "Unable to analyze photo automatically",
       isFalseAlarm: false,
+      falseAlarmReason: null,
+      targetStation: "Relief Hub"
     };
   }
 }
