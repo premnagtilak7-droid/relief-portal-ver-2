@@ -2,10 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import { GoogleGenAI } from "@google/genai";
-import dotenv from "dotenv";
-
-dotenv.config();
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,9 +13,11 @@ async function startServer() {
   const PORT = 3000;
 
   // Initialize Gemini
-  const ai = new GoogleGenAI({ 
-    apiKey: process.env.GEMINI_API_KEY || "" 
-  });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error("CRITICAL: GEMINI_API_KEY is missing from environment variables.");
+  }
+  const genAI = new GoogleGenerativeAI(apiKey || "");
 
   app.use(express.json({ limit: '10mb' }));
 
@@ -50,12 +49,10 @@ Priority Guidelines:
 - 4: Important but stable (shelter damage, low supplies)
 - 5: Non-urgent assistance (information requests, minor needs)`;
 
-      const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ text: prompt }]
-      });
+      const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+      const result = await model.generateContent(prompt);
       
-      const responseText = result.text;
+      const responseText = result.response.text();
       
       const jsonMatch = responseText?.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("Invalid AI response");
@@ -78,15 +75,13 @@ Rules:
 - Food photos, menus, selfies = Irrelevant, severity 0, isFalseAlarm true
 - Real disasters = appropriate category, severity 1-10 based on urgency`;
 
-      const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          { text: prompt },
-          { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-        ]
-      });
+      const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+      const result = await model.generateContent([
+        { text: prompt },
+        { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+      ]);
       
-      const responseText = result.text;
+      const responseText = result.response.text();
       const jsonMatch = responseText?.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("Invalid AI response");
       
@@ -118,15 +113,13 @@ Rules:
       "confidenceScore": 0-100
     }`;
 
-      const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          { text: prompt },
-          { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-        ]
-      });
+      const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+      const result = await model.generateContent([
+        { text: prompt },
+        { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+      ]);
       
-      const responseText = result.text;
+      const responseText = result.response.text();
       const jsonMatch = responseText?.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("Invalid AI response");
       

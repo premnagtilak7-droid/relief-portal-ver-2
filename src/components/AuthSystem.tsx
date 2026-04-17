@@ -103,9 +103,25 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
       };
       
       onLogin(user);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Login failed';
-      toast.error(errorMessage);
+    } catch (error: any) {
+      console.error('Login Error:', error);
+      
+      if (error.message?.includes('user-not-found')) {
+        toast.error('No account found with this email. Please sign up first.', {
+          duration: 5000,
+          action: {
+            label: 'Sign Up',
+            onClick: () => setActiveTab('signup')
+          }
+        });
+      } else if (error.message?.includes('wrong-password') || error.message?.includes('invalid-credential')) {
+        toast.error('Invalid email or password. Please try again.');
+      } else if (error.message?.includes('too-many-requests')) {
+        toast.error('Too many failed login attempts. Please try again later.');
+      } else {
+        const errorMessage = error instanceof Error ? error.message : 'Login failed';
+        toast.error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -203,9 +219,26 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
       
       toast.success('Account created successfully!');
       onLogin(user);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Registration failed';
-      toast.error(errorMessage);
+    } catch (error: any) {
+      console.error('Registration Error:', error);
+      
+      // Handle Firebase specific error messages
+      if (error.message?.includes('email-already-in-use')) {
+        toast.error('This email is already registered. Please sign in instead or use another email.', {
+          duration: 5000,
+          action: {
+            label: 'Sign In',
+            onClick: () => setActiveTab('signin')
+          }
+        });
+      } else if (error.message?.includes('weak-password')) {
+        toast.error('Password is too weak. Please use a stronger password.');
+      } else if (error.message?.includes('invalid-email')) {
+        toast.error('The email address is invalid.');
+      } else {
+        const errorMessage = error instanceof Error ? error.message : 'Registration failed';
+        toast.error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
