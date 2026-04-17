@@ -5,10 +5,19 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { AlertCircle, MapPin, Phone, MessageSquare, Camera, Send, X, Loader2 } from 'lucide-react';
-import { getCurrentLocation } from '@/lib/geolocation';
+import { getCurrentLocation, subscribeToNearbyVolunteers, NearbyVolunteer } from '@/lib/geolocation';
 import { submitSOS } from '@/lib/alerts';
 import { analyzeBase64Photo } from '@/lib/gemini';
 import { toast } from 'sonner';
+
+const HELPLINE_MAPPING: Record<string, string> = {
+  'Fire Department': '101',
+  'Medical Center': '102',
+  'Coast Guard': '1091',
+  'Police Station': '100',
+  'Relief Hub': '112',
+  'fallback': '112'
+};
 
 interface EmergencySOSFormProps {
   onClose: () => void;
@@ -22,6 +31,7 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
   const [photo, setPhoto] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nearbyVolunteers, setNearbyVolunteers] = useState<NearbyVolunteer[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -29,6 +39,19 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
     fetchLocation();
     return () => stopCamera();
   }, []);
+
+  useEffect(() => {
+    if (!location) return;
+
+    const unsubscribe = subscribeToNearbyVolunteers(
+      location.lat,
+      location.lng,
+      5, // 5km radius for SOS
+      (volunteers) => setNearbyVolunteers(volunteers)
+    );
+
+    return () => unsubscribe();
+  }, [location]);
 
   const fetchLocation = async () => {
     setIsLocating(true);
@@ -98,10 +121,10 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
         toast.info('Analyzing emergency photo...', { id: 'analyzing' });
         analysis = await analyzeBase64Photo(base64Data);
         toast.dismiss('analyzing');
-        photoURL = photo; // In a real app, upload to storage first
+        photoURL = photo; 
       }
 
-      await submitSOS({
+      const sosData = {
         name: 'Emergency SOS User',
         phone,
         location: location ? `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}` : 'Location unknown',
@@ -112,12 +135,44 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
         photoURL,
         targetStation: analysis?.targetStation,
         visionAnalysis: analysis
+      };
+
+      await submitSOS(sosData);
+
+      // --- AUTO CALL & MESSAGE LOGIC ---
+      const recipientNumber = nearbyVolunteers.length > 0 
+        ? nearbyVolunteers[0].phoneNumber 
+        : (HELPLINE_MAPPING[analysis?.targetStation || 'fallback'] || '112');
+
+      const emoji = analysis?.primaryNeed === 'Medical' ? '🚑' : analysis?.primaryNeed === 'Fire' ? '🚒' : '🚨';
+      const smsBody = `${emoji} EMERGENCY SOS!\nNeed: ${sosData.emergencyType}\nPos: ${sosData.location}\nDetails: ${sosData.description}`;
+
+      // Open SMS app first (optional, might be blocked by dialer)
+      // We'll show a toast with a button for SMS and auto-trigger the call
+      
+      toast.success(`SOS BROADCASTED!`, {
+        description: `Connecting you to ${analysis?.targetStation || 'Emergency Services'}...`,
+        duration: 10000,
       });
 
-      toast.success(`SOS SIGNAL SENT! ${analysis?.targetStation ? `${analysis.targetStation} notified.` : 'Help is on the way.'}`, {
-        duration: 15000,
-        className: 'bg-red-600 text-white font-bold text-lg',
-      });
+      // Automated call
+      setTimeout(() => {
+        window.open(`tel:${recipientNumber}`);
+      }, 1000);
+
+      // Attempt to prepare SMS (browsers might block double triggers, so we provide a clear UI link too)
+      const smsUrl = `sms:${recipientNumber}${window.navigator.userAgent.includes('iPhone') ? '&' : '?'}body=${encodeURIComponent(smsBody)}`;
+      
+      // We use a small delay for the SMS if the call didn't take over the window
+      setTimeout(() => {
+        toast.info("Sending SMS alert...", {
+          action: {
+            label: "Send Now",
+            onClick: () => window.open(smsUrl)
+          }
+        });
+      }, 3000);
+
       onClose();
     } catch (error: any) {
       toast.error('Failed to send SOS: ' + error.message);
