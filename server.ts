@@ -127,20 +127,23 @@ app.post("/api/gemini/analyze-id", async (req, res) => {
   }
 });
 
-if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
+if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
   const distPath = path.join(process.cwd(), 'dist');
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
-  
+}
+
+if (!process.env.VERCEL) {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-// Development mode: Attach Vite middleware
-if (process.env.NODE_ENV !== "production") {
+// Development mode: Attach Vite middleware (only if NOT on Vercel or explicitly in dev)
+if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
   (async () => {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
