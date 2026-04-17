@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required) - format: email
+    //   - name: string (required)
+    //   - role: string (required) - values: ['admin', 'volunteer', 'victim']
+    //   - photoURL: string (optional)
+    //   - latitude: number (optional)
+    //   - longitude: number (optional)
+    //   - availableForRescue: bool (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: alerts
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (optional - 'anonymous' for guest SOS)
+    //   - name: string (required)
+    //   - phone: string (required)
+    //   - location: string (required)
+    //   - emergencyType: string (required)
+    //   - description: string (required)
+    //   - latitude: number (optional)
+    //   - longitude: number (optional)
+    //   - status: string (required) - values: ['pending', 'acknowledged', 'resolved']
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "premnagtilak7@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isVolunteer() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'volunteer';
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role', 'createdAt']) &&
+             data.uid is string &&
+             data.email is string && isValidEmail(data.email) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.role in ['admin', 'volunteer', 'victim'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidSOS(data) {
+      return data.keys().hasAll(['name', 'phone', 'location', 'emergencyType', 'description', 'status', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.phone is string && data.phone.size() > 0 && data.phone.size() < 30 &&
+             data.location is string && data.location.size() < 200 &&
+             data.emergencyType is string && data.emergencyType.size() < 50 &&
+             data.description is string && data.description.size() < 1000 &&
+             data.status == 'pending' &&
+             data.createdAt is timestamp &&
+             (!('latitude' in data) || data.latitude is number) &&
+             (!('longitude' in data) || data.longitude is number);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can only read their own private data, Admins can read all
+      // Public profiles are not enabled by default for privacy
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      
+      // Users can register their own profile
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
+      
+      // Users can update their own non-role data, Admins can update anything
+      allow update: if isOwner(userId) && 
+                      isValidUser(request.resource.data) && 
+                      request.resource.data.role == resource.data.role &&
+                      request.resource.data.uid == resource.data.uid;
+      allow update: if isAdmin() && isValidUser(request.resource.data);
+    }
+
+    match /alerts/{alertId} {
+      // Anyone can create an SOS alert (Emergency SOS requirement)
+      // We validate the schema strictly to prevent abuse
+      allow create: if isValidSOS(request.resource.data);
+      
+      // Admins and Volunteers can read all alerts to coordinate rescue
+      // Victims can read their own alerts
+      allow read: if isAuthenticated() && (isAdmin() || isVolunteer() || (request.auth.uid == resource.data.userId));
+      
+      // Only Admins or Volunteers can update alert status (e.g. acknowledge, resolve)
+      allow update: if isAuthenticated() && (isAdmin() || isVolunteer()) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolverId', 'resolverName', 'aiTriage', 'triageCategory', 'triagePriority', 'aiSeverity', 'aiPrimaryNeed', 'visionAnalysis']) &&
+                    request.resource.data.status in ['pending', 'acknowledged', 'resolved'];
+                    
+      // Only Admins can delete alerts
+      allow delete: if isAdmin();
+    }
+    
+    // Rescue History for portfolio tracking
+    match /rescueHistory/{historyId} {
+      allow read: if isAuthenticated() && (isAdmin() || isOwner(resource.data.resolverId));
+      allow create: if isAuthenticated() && (isVolunteer() || isAdmin()) && request.resource.data.resolverId == request.auth.uid;
+    }
+    
+    // Volunteers collection for active tracking
+    match /volunteers/{volunteerId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isOwner(volunteerId);
+    }
+  }
+}

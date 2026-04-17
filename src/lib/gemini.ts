@@ -1,10 +1,10 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-const genAI = new GoogleGenerativeAI(
-  process.env.GEMINI_API_KEY || ""
-);
+const ai = new GoogleGenAI({ 
+  apiKey: process.env.GEMINI_API_KEY || "" 
+});
 
 export interface TriageResult {
   category: "Medical" | "Food" | "Water" | "Shelter" | "Rescue" | "Other";
@@ -13,7 +13,7 @@ export interface TriageResult {
 }
 
 /**
- * Triage an alert using Gemini 1.5 Flash
+ * Triage an alert using Gemini 3 Flash
  * Analyzes the victim's message and returns category and priority
  */
 export async function triageAlert(
@@ -21,8 +21,6 @@ export async function triageAlert(
   description: string
 ): Promise<TriageResult> {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
     const prompt = `You are a disaster relief triage AI. Analyze the following emergency request and categorize it.
 
 Emergency Type: ${emergencyType}
@@ -42,11 +40,18 @@ Priority Guidelines:
 - 4: Important but stable (shelter damage, low supplies)
 - 5: Non-urgent assistance (information requests, minor needs)`;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response.text();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+    });
+
+    const responseText = response.text;
+    if (!responseText) {
+      throw new Error("Empty response from AI");
+    }
     
     // Parse JSON from response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("Invalid response format from Gemini");
     }
@@ -110,7 +115,7 @@ export interface VisionAnalysis {
 }
 
 /**
- * Analyze a disaster photo using Gemini 1.5 Flash Vision
+ * Analyze a disaster photo using Gemini 3 Flash
  * @param imageUrl - The Firebase Storage URL of the uploaded image
  */
 export async function analyzeDisasterPhoto(imageUrl: string): Promise<VisionAnalysis> {
@@ -127,8 +132,6 @@ export async function analyzeDisasterPhoto(imageUrl: string): Promise<VisionAnal
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
     // Fetch the image as base64
     const response = await fetch(imageUrl);
     const blob = await response.blob();
@@ -166,19 +169,25 @@ Severity Guidelines (for REAL disasters only):
 - 1-2: Minimal (precautionary assessment)
 - 0: FALSE ALARM - Not a disaster image`;
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: base64,
-        },
-      },
-    ]);
+    const result = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        { text: prompt },
+        { 
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: base64,
+          }
+        }
+      ]
+    });
 
-    const responseText = result.response.text();
+    const responseText = result.text;
+    if (!responseText) {
+      throw new Error("Empty response from AI");
+    }
+
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    
     if (!jsonMatch) {
       throw new Error("Invalid response format from Gemini Vision");
     }
@@ -230,15 +239,6 @@ export async function analyzeBase64Photo(base64Data: string): Promise<VisionAnal
   }
 
   try {
-    // Use gemini-1.5-flash for fastest response
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
-      generationConfig: {
-        maxOutputTokens: 200, // Limit output for speed
-        temperature: 0.1, // Low temperature for consistent results
-      }
-    });
-
     // Optimized short prompt for speed
     const prompt = `Quickly categorize this image. Reply ONLY with JSON:
 {"isFalseAlarm":bool,"category":"Flood|Fire|Medical|Collapse|Irrelevant","severity":0-10,"description":"max 20 words"}
@@ -247,19 +247,28 @@ Rules:
 - Food photos, menus, selfies = Irrelevant, severity 0, isFalseAlarm true
 - Real disasters = appropriate category, severity 1-10 based on urgency`;
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: base64Data,
-        },
-      },
-    ]);
+    const result = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: base64Data,
+          }
+        }
+      ],
+      config: {
+        temperature: 0.1,
+      }
+    });
 
-    const responseText = result.response.text();
+    const responseText = result.text;
+    if (!responseText) {
+      throw new Error("Empty response from AI");
+    }
+
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    
     if (!jsonMatch) {
       throw new Error("Invalid response format from Gemini Vision");
     }
@@ -318,3 +327,4 @@ export async function analyzeAndUpdateAlert(
   
   return analysis;
 }
+

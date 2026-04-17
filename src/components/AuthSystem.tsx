@@ -162,20 +162,35 @@ export function AuthSystem({ onLogin }: AuthSystemProps) {
   const handleQuickSOS = async () => {
     setIsSOSLoading(true);
     try {
+      toast.info('Fetching your location...', { id: 'sos-locating' });
       const location = await getCurrentLocation();
+      toast.dismiss('sos-locating');
+      
+      toast.info('Sending SOS alert...', { id: 'sos-sending' });
       await submitEmergencySOS(
         'anonymous',
         'Guest User (SOS)',
         location.latitude,
         location.longitude
       );
+      toast.dismiss('sos-sending');
+      
       toast.success('EMERGENCY SOS SENT! Rescuers have been notified of your location.', {
         duration: 10000,
-        className: 'bg-red-600 text-white',
+        className: 'bg-red-600 text-white font-bold',
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('SOS Error:', error);
-      toast.error('Failed to send SOS. Please check your location permissions.');
+      toast.dismiss('sos-locating');
+      toast.dismiss('sos-sending');
+      
+      if (error.code === 1) { // PERMISSION_DENIED
+        toast.error('Location Access Denied. Please enable location permissions in your browser to send an SOS.');
+      } else if (error.message?.includes('permission')) {
+        toast.error('Database Error: Permission denied. Please try signing in first.');
+      } else {
+        toast.error(`SOS Failed: ${error.message || 'Please check your connection and location settings.'}`);
+      }
     } finally {
       setIsSOSLoading(false);
     }
