@@ -23,6 +23,7 @@ export interface VisionAnalysis {
   urgentDetails?: string;
   isFalseAlarm: boolean;
   falseAlarmReason?: string;
+  targetStation?: string;
 }
 
 export interface VerificationAnalysis {
@@ -177,11 +178,22 @@ export async function analyzeBase64Photo(base64Data: string): Promise<VisionAnal
     const prompt = `Quickly categorize this disaster-related image. 
     Strictness: Ignore selfies, food, and clearly irrelevant photos.
     Reply ONLY with JSON:
-{"isFalseAlarm":bool,"category":"Flood|Fire|Medical|Collapse|Irrelevant","severity":1-10,"description":"max 20 words"}
+{
+  "isFalseAlarm": bool,
+  "category": "Flood|Fire|Medical|Collapse|Irrelevant",
+  "severity": 1-10,
+  "description": "max 20 words",
+  "targetStation": "Fire Department|Medical Center|Coast Guard|Police Station|Relief Hub"
+}
 
-Rules:
-- severity is 0 for Irrelevant/False Alarm.
-- description should mention specific threats seen.`;
+Rules for targetStation:
+- Fire/Collapse/Entrapment -> "Fire Department"
+- Injuries/Sickness -> "Medical Center"
+- Floods/Water rescue -> "Coast Guard"
+- Security/Civil unrest -> "Police Station"
+- General damage/Irrelevant -> "Relief Hub"
+
+Reply with JSON only.`;
 
     const response = await ai.models.generateContent({
       model: DEFAULT_MODEL,
@@ -211,6 +223,7 @@ Rules:
       severity: parsed.isFalseAlarm ? 0 : (parsed.severity || 5),
       primaryNeed: (categoryToNeed[parsed.category] || 'Other') as VisionAnalysis['primaryNeed'],
       description: parsed.description || 'Analysis complete',
+      targetStation: parsed.targetStation || 'Relief Hub'
     };
   } catch (error) {
     console.error("Client Base64 analysis error:", error);
@@ -266,6 +279,7 @@ export async function analyzeAndUpdateAlert(
       visionAnalysis: analysis,
       aiSeverity: analysis.severity,
       aiPrimaryNeed: analysis.primaryNeed,
+      targetStation: analysis.targetStation || "Relief Hub",
     });
   } catch (error) {
     console.error("Failed to update alert with vision analysis:", error);

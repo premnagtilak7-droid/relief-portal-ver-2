@@ -24,11 +24,13 @@ export interface SOSAlert {
   latitude?: number;
   longitude?: number;
   photoURL?: string | null;
+  targetStation?: string;
   visionAnalysis?: {
     severity: number;
     primaryNeed: string;
     description: string;
     isFalseAlarm?: boolean;
+    targetStation?: string;
   };
 }
 
@@ -36,6 +38,7 @@ export interface SOSAlertDocument extends SOSAlert {
   status: "pending" | "acknowledged" | "resolved";
   createdAt: ReturnType<typeof serverTimestamp>;
   photoURL?: string | null;
+  targetStation?: string;
   visionAnalysis?: {
     severity: number;
     primaryNeed: string;
@@ -43,6 +46,7 @@ export interface SOSAlertDocument extends SOSAlert {
     urgentDetails?: string;
     isFalseAlarm?: boolean;
     falseAlarmReason?: string;
+    targetStation?: string;
   };
 }
 

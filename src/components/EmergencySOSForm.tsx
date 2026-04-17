@@ -110,10 +110,11 @@ export function EmergencySOSForm({ onClose }: EmergencySOSFormProps) {
         latitude: location?.lat,
         longitude: location?.lng,
         photoURL,
+        targetStation: analysis?.targetStation,
         visionAnalysis: analysis
       });
 
-      toast.success('SOS SIGNAL SENT! Help is on the way.', {
+      toast.success(`SOS SIGNAL SENT! ${analysis?.targetStation ? `${analysis.targetStation} notified.` : 'Help is on the way.'}`, {
         duration: 15000,
         className: 'bg-red-600 text-white font-bold text-lg',
       });
